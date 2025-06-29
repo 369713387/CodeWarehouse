@@ -1,5 +1,8 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace FSMFrame
 {
@@ -7,81 +10,78 @@ namespace FSMFrame
     {
         private sealed class ReferenceCollection
         {
-            private readonly Queue<IReference> m_References;
+            // 使用 ConcurrentQueue 替代 Queue + lock
+            private readonly ConcurrentQueue<IReference> m_References;
             private readonly Type m_ReferenceType;
+            private readonly Func<IReference> m_Factory;
+            
+            // 使用 Interlocked 操作替代锁
             private int m_UsingReferenceCount;
             private int m_AcquireReferenceCount;
             private int m_ReleaseReferenceCount;
             private int m_AddReferenceCount;
             private int m_RemoveReferenceCount;
 
+            // 严格检查时使用的已释放引用集合
+            private readonly HashSet<IReference> m_ReleasedReferences;
+            private readonly object m_ReleasedReferencesLock;
+
             public ReferenceCollection(Type referenceType)
             {
-                m_References = new Queue<IReference>();
+                m_References = new ConcurrentQueue<IReference>();
                 m_ReferenceType = referenceType;
-                m_UsingReferenceCount = 0;
-                m_AcquireReferenceCount = 0;
-                m_ReleaseReferenceCount = 0;
-                m_AddReferenceCount = 0;
-                m_RemoveReferenceCount = 0;
+                m_Factory = GetOrCreateFactory(referenceType);
+                
+                if (m_EnableStrictCheck)
+                {
+                    m_ReleasedReferences = new HashSet<IReference>();
+                    m_ReleasedReferencesLock = new object();
+                }
             }
 
             public Type ReferenceType
             {
-                get
-                {
-                    return m_ReferenceType;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return m_ReferenceType; }
             }
 
             public int UnusedReferenceCount
             {
-                get
-                {
-                    return m_References.Count;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return m_References.Count; }
             }
 
             public int UsingReferenceCount
             {
-                get
-                {
-                    return m_UsingReferenceCount;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return Thread.VolatileRead(ref m_UsingReferenceCount); }
             }
 
             public int AcquireReferenceCount
             {
-                get
-                {
-                    return m_AcquireReferenceCount;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return Thread.VolatileRead(ref m_AcquireReferenceCount); }
             }
 
             public int ReleaseReferenceCount
             {
-                get
-                {
-                    return m_ReleaseReferenceCount;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return Thread.VolatileRead(ref m_ReleaseReferenceCount); }
             }
 
             public int AddReferenceCount
             {
-                get
-                {
-                    return m_AddReferenceCount;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return Thread.VolatileRead(ref m_AddReferenceCount); }
             }
 
             public int RemoveReferenceCount
             {
-                get
-                {
-                    return m_RemoveReferenceCount;
-                }
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get { return Thread.VolatileRead(ref m_RemoveReferenceCount); }
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public T Acquire<T>() where T : class, IReference, new()
             {
                 if (typeof(T) != m_ReferenceType)
@@ -89,51 +89,52 @@ namespace FSMFrame
                     //Log.Error("Type is invalid.");
                 }
 
-                m_UsingReferenceCount++;
-                m_AcquireReferenceCount++;
-                lock (m_References)
+                Interlocked.Increment(ref m_UsingReferenceCount);
+                Interlocked.Increment(ref m_AcquireReferenceCount);
+                
+                if (m_References.TryDequeue(out IReference reference))
                 {
-                    if (m_References.Count > 0)
-                    {
-                        return (T)m_References.Dequeue();
-                    }
+                    return (T)reference;
                 }
 
-                m_AddReferenceCount++;
+                Interlocked.Increment(ref m_AddReferenceCount);
                 return new T();
             }
 
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public IReference Acquire()
             {
-                m_UsingReferenceCount++;
-                m_AcquireReferenceCount++;
-                lock (m_References)
+                Interlocked.Increment(ref m_UsingReferenceCount);
+                Interlocked.Increment(ref m_AcquireReferenceCount);
+                
+                if (m_References.TryDequeue(out IReference reference))
                 {
-                    if (m_References.Count > 0)
-                    {
-                        return m_References.Dequeue();
-                    }
+                    return reference;
                 }
 
-                m_AddReferenceCount++;
-                return (IReference)Activator.CreateInstance(m_ReferenceType);
+                Interlocked.Increment(ref m_AddReferenceCount);
+                return m_Factory();
             }
 
             public void Release(IReference reference)
             {
                 reference.Clear();
-                lock (m_References)
+                
+                if (m_EnableStrictCheck && m_ReleasedReferences != null)
                 {
-                    if (m_EnableStrictCheck && m_References.Contains(reference))
+                    lock (m_ReleasedReferencesLock)
                     {
-                        //Log.Error("The reference has been released.");
+                        if (!m_ReleasedReferences.Add(reference))
+                        {
+                            // Log.Error("The reference has been released.");
+                            return;
+                        }
                     }
-
-                    m_References.Enqueue(reference);
                 }
 
-                m_ReleaseReferenceCount++;
-                m_UsingReferenceCount--;
+                m_References.Enqueue(reference);
+                Interlocked.Increment(ref m_ReleaseReferenceCount);
+                Interlocked.Decrement(ref m_UsingReferenceCount);
             }
 
             public void Add<T>(int count) where T : class, IReference, new()
@@ -141,55 +142,61 @@ namespace FSMFrame
                 if (typeof(T) != m_ReferenceType)
                 {
                     //Log.Error("Type is invalid.");
+                    return;
                 }
 
-                lock (m_References)
+                Interlocked.Add(ref m_AddReferenceCount, count);
+                for (int i = 0; i < count; i++)
                 {
-                    m_AddReferenceCount += count;
-                    while (count-- > 0)
-                    {
-                        m_References.Enqueue(new T());
-                    }
+                    m_References.Enqueue(new T());
                 }
             }
 
             public void Add(int count)
             {
-                lock (m_References)
+                Interlocked.Add(ref m_AddReferenceCount, count);
+                for (int i = 0; i < count; i++)
                 {
-                    m_AddReferenceCount += count;
-                    while (count-- > 0)
-                    {
-                        m_References.Enqueue((IReference)Activator.CreateInstance(m_ReferenceType));
-                    }
+                    m_References.Enqueue(m_Factory());
                 }
             }
 
             public void Remove(int count)
             {
-                lock (m_References)
+                int actualCount = 0;
+                for (int i = 0; i < count && m_References.TryDequeue(out _); i++)
                 {
-                    if (count > m_References.Count)
-                    {
-                        count = m_References.Count;
-                    }
-
-                    m_RemoveReferenceCount += count;
-                    while (count-- > 0)
-                    {
-                        m_References.Dequeue();
-                    }
+                    actualCount++;
+                }
+                
+                if (actualCount > 0)
+                {
+                    Interlocked.Add(ref m_RemoveReferenceCount, actualCount);
                 }
             }
 
             public void RemoveAll()
             {
-                lock (m_References)
+                int removedCount = 0;
+                while (m_References.TryDequeue(out _))
                 {
-                    m_RemoveReferenceCount += m_References.Count;
-                    m_References.Clear();
+                    removedCount++;
+                }
+                
+                if (removedCount > 0)
+                {
+                    Interlocked.Add(ref m_RemoveReferenceCount, removedCount);
+                }
+                
+                if (m_EnableStrictCheck && m_ReleasedReferences != null)
+                {
+                    lock (m_ReleasedReferencesLock)
+                    {
+                        m_ReleasedReferences.Clear();
+                    }
                 }
             }
         }
     }
 }
+

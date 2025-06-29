@@ -1,112 +1,182 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Reflection;
+using UnityEngine;
 
-namespace QFramework
+namespace YiFun.Pool
 {
-    public interface IPool<T>
+    /// <summary>
+    /// 通用对象池基类
+    /// </summary>
+    /// <typeparam name="T">对象类型</typeparam>
+    public class ObjectPool<T> where T : class
     {
-        T Allocate();
+        #region 私有字段
+        private readonly Stack<T> _pool = new Stack<T>();
+        private readonly HashSet<T> _activeObjects = new HashSet<T>();
+        private readonly Func<T> _createFunc;
+        private readonly Action<T> _onGet;
+        private readonly Action<T> _onRelease;
+        private readonly Action<T> _onDestroy;
+        private readonly int _maxSize;
+        #endregion
 
-        bool Recycle(T obj);
-    }
-
-    public abstract class Pool<T> : IPool<T>, ICountObserveAble
-    {
-        #region ICountObserverable
+        #region 公开属性
         /// <summary>
-        /// Gets the current count.
+        /// 池中对象总数
         /// </summary>
-        /// <value>The current count.</value>
-        public int CurCount
+        public int CountAll => _pool.Count + _activeObjects.Count;
+
+        /// <summary>
+        /// 活跃对象数量
+        /// </summary>
+        public int CountActive => _activeObjects.Count;
+
+        /// <summary>
+        /// 池中可用对象数量
+        /// </summary>
+        public int CountInactive => _pool.Count;
+
+        /// <summary>
+        /// 最大池大小
+        /// </summary>
+        public int MaxSize => _maxSize;
+        #endregion
+
+        #region 构造函数
+        /// <summary>
+        /// 创建对象池
+        /// </summary>
+        /// <param name="createFunc">创建对象的函数</param>
+        /// <param name="onGet">获取对象时的回调</param>
+        /// <param name="onRelease">释放对象时的回调</param>
+        /// <param name="onDestroy">销毁对象时的回调</param>
+        /// <param name="maxSize">最大池大小，-1表示无限制</param>
+        /// <param name="preloadCount">预加载数量</param>
+        public ObjectPool(
+            Func<T> createFunc,
+            Action<T> onGet = null,
+            Action<T> onRelease = null,
+            Action<T> onDestroy = null,
+            int maxSize = -1,
+            int preloadCount = 0)
         {
-            get { return mCacheStack.Count; }
+            _createFunc = createFunc ?? throw new ArgumentNullException(nameof(createFunc));
+            _onGet = onGet;
+            _onRelease = onRelease;
+            _onDestroy = onDestroy;
+            _maxSize = maxSize;
+
+            // 预加载对象
+            for (int i = 0; i < preloadCount; i++)
+            {
+                var obj = _createFunc();
+                _onRelease?.Invoke(obj);
+                _pool.Push(obj);
+            }
         }
         #endregion
 
-        protected IObjectFactory<T> mFactory;
+        #region 公开方法
+        /// <summary>
+        /// 从池中获取对象
+        /// </summary>
+        /// <returns>对象实例</returns>
+        public T Get()
+        {
+            T obj;
+            
+            if (_pool.Count > 0)
+            {
+                obj = _pool.Pop();
+            }
+            else
+            {
+                obj = _createFunc();
+            }
 
-        protected readonly Stack<T> mCacheStack = new Stack<T>();
+            _activeObjects.Add(obj);
+            _onGet?.Invoke(obj);
+            
+            return obj;
+        }
 
         /// <summary>
-        /// default is 5
+        /// 将对象回收到池中
         /// </summary>
-        protected int mMaxCount = 12;
-
-        public virtual T Allocate()
+        /// <param name="obj">要回收的对象</param>
+        /// <returns>是否成功回收</returns>
+        public bool Release(T obj)
         {
-            return mCacheStack.Count == 0
-                ? mFactory.Create()
-                : mCacheStack.Pop();
-        }
-
-        public abstract bool Recycle(T obj);
-    }
-
-    /// <summary>
-    /// Count observer able.
-    /// </summary>
-    public interface ICountObserveAble
-    {
-        int CurCount { get; }
-    }
-
-    /// <summary>
-    /// 简易对象池
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    public class SimpleObjectPool<T> : Pool<T>
-    {
-        readonly Action<T> mResetMethod;
-
-        public SimpleObjectPool(Func<T> factoryMethod, Action<T> resetMethod = null, int initCount = 0)
-        {
-            mFactory = new CustomObjectFactory<T>(factoryMethod);
-            mResetMethod = resetMethod;
-
-            for (int i = 0; i < initCount; i++)
+            if (obj == null)
             {
-                mCacheStack.Push(mFactory.Create());
-            }
-        }
-
-        public override bool Recycle(T obj)
-        {
-            if (mResetMethod != null)
-            {
-                mResetMethod.Invoke(obj);
+                Debug.LogWarning("ObjectPool: 尝试释放null对象");
+                return false;
             }
 
-            mCacheStack.Push(obj);
+            if (!_activeObjects.Remove(obj))
+            {
+                Debug.LogWarning("ObjectPool: 尝试释放未被池管理的对象或已释放的对象");
+                return false;
+            }
+
+            // 检查池大小限制
+            if (_maxSize > 0 && _pool.Count >= _maxSize)
+            {
+                _onDestroy?.Invoke(obj);
+                return true;
+            }
+
+            _onRelease?.Invoke(obj);
+            _pool.Push(obj);
             return true;
         }
-    }
 
-    public interface IObjectFactory<T>
-    {
-        T Create();
-    }
-
-    public class DefaultObjectFactory<T> : IObjectFactory<T> where T : new()
-    {
-        public T Create()
+        /// <summary>
+        /// 清空对象池
+        /// </summary>
+        public void Clear()
         {
-            return new T();
-        }
-    }
+            // 销毁池中的对象
+            while (_pool.Count > 0)
+            {
+                var obj = _pool.Pop();
+                _onDestroy?.Invoke(obj);
+            }
 
-    public class CustomObjectFactory<T> : IObjectFactory<T>
-    {
-        public CustomObjectFactory(Func<T> factoryMethod)
+            // 警告活跃对象
+            if (_activeObjects.Count > 0)
+            {
+                Debug.LogWarning($"ObjectPool: 清空时仍有 {_activeObjects.Count} 个活跃对象未回收");
+                foreach (var obj in _activeObjects)
+                {
+                    _onDestroy?.Invoke(obj);
+                }
+                _activeObjects.Clear();
+            }
+        }
+
+        /// <summary>
+        /// 预热对象池（创建指定数量的对象）
+        /// </summary>
+        /// <param name="count">预热数量</param>
+        public void Warmup(int count)
         {
-            mFactoryMethod = factoryMethod;
+            for (int i = 0; i < count; i++)
+            {
+                var obj = _createFunc();
+                _onRelease?.Invoke(obj);
+                _pool.Push(obj);
+            }
         }
 
-        protected Func<T> mFactoryMethod;
-
-        public T Create()
+        /// <summary>
+        /// 获取对象池统计信息
+        /// </summary>
+        /// <returns>统计信息字符串</returns>
+        public string GetStatsString()
         {
-            return mFactoryMethod();
+            return $"ObjectPool<{typeof(T).Name}>: Total={CountAll}, Active={CountActive}, Inactive={CountInactive}, MaxSize={(_maxSize > 0 ? _maxSize.ToString() : "Unlimited")}";
         }
+        #endregion
     }
 }

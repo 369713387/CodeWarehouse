@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 
 namespace FSMFrame
 {
@@ -8,7 +10,12 @@ namespace FSMFrame
     /// </summary>
     public static partial class ReferencePool
     {
-        private static readonly Dictionary<Type, ReferenceCollection> s_ReferenceCollections = new Dictionary<Type, ReferenceCollection>();
+        // 使用 ConcurrentDictionary 替代 Dictionary + lock
+        private static readonly ConcurrentDictionary<Type, ReferenceCollection> s_ReferenceCollections = new ConcurrentDictionary<Type, ReferenceCollection>();
+        
+        // 缓存类型的工厂方法
+        private static readonly ConcurrentDictionary<Type, Func<IReference>> s_TypeFactories = new ConcurrentDictionary<Type, Func<IReference>>();
+        
         private static bool m_EnableStrictCheck = false;
 
         /// <summary>
@@ -43,16 +50,20 @@ namespace FSMFrame
         /// <returns>所有引用池的信息。</returns>
         public static ReferencePoolInfo[] GetAllReferencePoolInfos()
         {
-            int index = 0;
-            ReferencePoolInfo[] results = null;
-
-            lock (s_ReferenceCollections)
+            var collections = s_ReferenceCollections.ToArray();
+            var results = new ReferencePoolInfo[collections.Length];
+            
+            for (int i = 0; i < collections.Length; i++)
             {
-                results = new ReferencePoolInfo[s_ReferenceCollections.Count];
-                foreach (KeyValuePair<Type, ReferenceCollection> referenceCollection in s_ReferenceCollections)
-                {
-                    results[index++] = new ReferencePoolInfo(referenceCollection.Key, referenceCollection.Value.UnusedReferenceCount, referenceCollection.Value.UsingReferenceCount, referenceCollection.Value.AcquireReferenceCount, referenceCollection.Value.ReleaseReferenceCount, referenceCollection.Value.AddReferenceCount, referenceCollection.Value.RemoveReferenceCount);
-                }
+                var kvp = collections[i];
+                results[i] = new ReferencePoolInfo(
+                    kvp.Key, 
+                    kvp.Value.UnusedReferenceCount, 
+                    kvp.Value.UsingReferenceCount, 
+                    kvp.Value.AcquireReferenceCount, 
+                    kvp.Value.ReleaseReferenceCount, 
+                    kvp.Value.AddReferenceCount, 
+                    kvp.Value.RemoveReferenceCount);
             }
 
             return results;
@@ -63,15 +74,12 @@ namespace FSMFrame
         /// </summary>
         public static void ClearAll()
         {
-            lock (s_ReferenceCollections)
+            foreach (var referenceCollection in s_ReferenceCollections.Values)
             {
-                foreach (KeyValuePair<Type, ReferenceCollection> referenceCollection in s_ReferenceCollections)
-                {
-                    referenceCollection.Value.RemoveAll();
-                }
-
-                s_ReferenceCollections.Clear();
+                referenceCollection.RemoveAll();
             }
+            s_ReferenceCollections.Clear();
+            s_TypeFactories.Clear();
         }
 
         /// <summary>
@@ -79,6 +87,7 @@ namespace FSMFrame
         /// </summary>
         /// <typeparam name="T">引用类型。</typeparam>
         /// <returns>引用。</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static T Acquire<T>() where T : class, IReference, new()
         {
             return GetReferenceCollection(typeof(T)).Acquire<T>();
@@ -89,6 +98,7 @@ namespace FSMFrame
         /// </summary>
         /// <param name="referenceType">引用类型。</param>
         /// <returns>引用。</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static IReference Acquire(Type referenceType)
         {
             InternalCheckReferenceType(referenceType);
@@ -99,11 +109,13 @@ namespace FSMFrame
         /// 将引用归还引用池。
         /// </summary>
         /// <param name="reference">引用。</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void Release(IReference reference)
         {
             if (reference == null)
             {
                 //Log.Error("Reference is invalid.");
+                return;
             }
 
             Type referenceType = reference.GetType();
@@ -195,24 +207,17 @@ namespace FSMFrame
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ReferenceCollection GetReferenceCollection(Type referenceType)
         {
-            if (referenceType == null)
-            {
-                //Log.Error("ReferenceType is invalid.");
-            }
+            return s_ReferenceCollections.GetOrAdd(referenceType, type => new ReferenceCollection(type));
+        }
 
-            ReferenceCollection referenceCollection = null;
-            lock (s_ReferenceCollections)
-            {
-                if (!s_ReferenceCollections.TryGetValue(referenceType, out referenceCollection))
-                {
-                    referenceCollection = new ReferenceCollection(referenceType);
-                    s_ReferenceCollections.Add(referenceType, referenceCollection);
-                }
-            }
-
-            return referenceCollection;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Func<IReference> GetOrCreateFactory(Type referenceType)
+        {
+            return s_TypeFactories.GetOrAdd(referenceType, type => 
+                () => (IReference)Activator.CreateInstance(type));
         }
     }
 }
