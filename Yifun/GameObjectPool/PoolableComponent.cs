@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace YiFun.Pool
+namespace Framework.Pool
 {
     /// <summary>
     /// 可池化组件基类

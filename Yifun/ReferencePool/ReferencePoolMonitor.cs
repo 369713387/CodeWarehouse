@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace FSMFrame
+namespace Framework.Pool
 {
     /// <summary>
     /// 引用池监控器

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace YiFun.Pool
+namespace Framework.Pool
 {
     /// <summary>
     /// 对象池管理器 - 单例模式

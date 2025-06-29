@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace FSMFrame
+namespace Framework.Pool
 {
     /// <summary>
     /// 引用池信息。

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 
-namespace FSMFrame
+namespace Framework.Pool
 {
     /// <summary>
     /// 引用池。

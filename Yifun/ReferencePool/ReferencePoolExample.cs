@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace FSMFrame
+namespace Framework.Pool
 {
     /// <summary>
     /// 引用池使用示例

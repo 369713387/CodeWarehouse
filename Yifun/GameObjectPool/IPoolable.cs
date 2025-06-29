@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace YiFun.Pool
+namespace Framework.Pool
 {
     /// <summary>
     /// 对象池可回收对象接口

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace YiFun.Pool
+namespace Framework.Pool
 {
     /// <summary>
     /// GameObject对象池

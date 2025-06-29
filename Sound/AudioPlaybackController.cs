@@ -3,7 +3,7 @@ using System.Threading;
 using UnityEngine;
 using JSAM;
 using Cysharp.Threading.Tasks;
-using YiFun.Pool;
+using Framework.Pool;
 
 /// <summary>
 /// 可池化的音频播放控制器，提供更灵活的音频控制功能

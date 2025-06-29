@@ -1,11 +1,6 @@
-﻿//using Sirenix.OdinInspector;
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using YiFun;
-using YiFun.Pool;
+﻿using UnityEngine;
 
-namespace YiFun.Pool.Examples
+namespace Framework.Pool.Examples
 {
     /// <summary>
     /// 对象池测试和使用示例

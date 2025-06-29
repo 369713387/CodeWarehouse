@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace FSMFrame
+namespace Framework.Pool
 {
     /// <summary>
     /// 引用池扩展方法
