@@ -1,0 +1,48 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2204bf128383ced4f8a374a536984a4c, type: 3}
+  m_Name: Cat
+  m_EditorClassIdentifier: 
+  soundCategories:
+  - CatMeow
+  musicCategories:
+  - BGM
+  Sounds:
+  - {fileID: 11400000, guid: d4a8b1eb9616805409102ec855a21311, type: 2}
+  - {fileID: 11400000, guid: 965e66098bc1d0a4f928228fa14a5492, type: 2}
+  - {fileID: 11400000, guid: d00691e25371aef418bb9f432b2f7a2e, type: 2}
+  Music:
+  - {fileID: 11400000, guid: 5cfbfe3fb4709cf47ac61fe3a20548d2, type: 2}
+  - {fileID: 11400000, guid: c5a3d2f62f662e643a6b84a449a73cb6, type: 2}
+  useCustomNames: 0
+  generatedName: Cat
+  musicEnum: 
+  musicEnumGenerated: CatMusic
+  musicNamespace: 
+  musicNamespaceGenerated: 
+  soundEnum: 
+  soundEnumGenerated: CatSounds
+  soundNamespace: 
+  soundNamespaceGenerated: 
+  soundCategoriesToList:
+  - name: CatMeow
+    files:
+    - {fileID: 11400000, guid: d4a8b1eb9616805409102ec855a21311, type: 2}
+    - {fileID: 11400000, guid: 965e66098bc1d0a4f928228fa14a5492, type: 2}
+    - {fileID: 11400000, guid: d00691e25371aef418bb9f432b2f7a2e, type: 2}
+    foldout: 1
+  musicCategoriesToList:
+  - name: BGM
+    files:
+    - {fileID: 11400000, guid: 5cfbfe3fb4709cf47ac61fe3a20548d2, type: 2}
+    - {fileID: 11400000, guid: c5a3d2f62f662e643a6b84a449a73cb6, type: 2}
+    foldout: 1
