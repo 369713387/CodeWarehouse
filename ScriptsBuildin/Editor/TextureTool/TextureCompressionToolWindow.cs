@@ -39,7 +39,7 @@ namespace YF.EditorTools
 		private float _colActionsW = 300f;
 		private const float _colGap = 6f;
 
-		public override string ToolName => "Texture Compression Tool";
+		public override string ToolName => "贴图批量设置工具";
 		public override Vector2Int WinSize => new Vector2Int(760, 420);	
 
 		private void ComputeColumnWidths()

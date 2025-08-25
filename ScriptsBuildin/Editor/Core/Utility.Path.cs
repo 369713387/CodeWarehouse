@@ -1,6 +1,6 @@
 namespace YF.EditorTools
 {
-    public static class Utility
+    public static partial class Utility
     {
         public static class Path
         {
