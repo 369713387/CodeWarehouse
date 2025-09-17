@@ -240,6 +240,7 @@ namespace ToolKits
             }
 
             InitPreview();
+
             if (m_PreviewUtility == null)
             {
                 if (GUILayout.Button(s_Styles.reload, s_Styles.preButton))
@@ -264,38 +265,6 @@ namespace ToolKits
             //    SetSimulateMode();
             //}
 
-            bool flag = CycleButton(!m_Playing ? 0 : 1, s_Styles.play, s_Styles.preButton) != 0;
-            if (flag != m_Playing)
-            {
-                if (flag)
-                {
-                    SimulateEnable();
-                }
-                else
-                {
-                    SimulateDisable();
-                }
-            }
-
-            GUILayout.Box(s_Styles.speedScale, s_Styles.preLabel);
-            EditorGUI.BeginChangeCheck();
-            m_PlaybackSpeed = PreviewSlider(m_PlaybackSpeed, 0.03f);
-            if (EditorGUI.EndChangeCheck() && m_PreviewInstance)
-            {
-                ParticleSystem[] particleSystems = m_PreviewInstance.GetComponentsInChildren<ParticleSystem>(true);
-                foreach (var particleSystem in particleSystems)
-                {
-#if UNITY_5_5_OR_NEWER
-                    ParticleSystem.MainModule main = particleSystem.main;
-                    main.simulationSpeed = m_PlaybackSpeed;
-#else
-                particleSystem.playbackSpeed = m_PlaybackSpeed;
-#endif
-                }
-            }
-
-            GUILayout.Label(m_PlaybackSpeed.ToString("f2"), s_Styles.preLabel);
-
             // 添加时间轴控制
             GUILayout.Box(s_Styles.timeline, s_Styles.preLabel);
             EditorGUI.BeginChangeCheck();
@@ -313,16 +282,50 @@ namespace ToolKits
             {
                 m_IsTimelineScrubbing = false;
 
-                Debug.Log("AAA");
-                // // 当拖拽时间轴时，停止播放状态
-                // if (m_Playing)
-                // {
-                //     SimulateDisable();
-                //     Debug.Log("时间轴拖拽，停止播放");
-                // }
+                // 当拖拽时间轴结束时，停止自动播放状态
+                if (m_Playing)
+                {
+                    SimulateDisable(); // 只停止播放，不重置时间
+                    Debug.Log("时间轴拖拽结束，停止自动播放");
+                    
+                    // 强制刷新UI以更新播放按钮状态
+                    Repaint();
+                }
+            }
+            GUILayout.Label(m_RunningTime.ToString("f1") + "s", s_Styles.preLabel);
+
+            //播放按钮
+            bool flag = CycleButton(!m_Playing ? 0 : 1, s_Styles.play, s_Styles.preButton) != 0;
+            if (flag != m_Playing)
+            {
+                if (flag)
+                {
+                    SimulateEnable();
+                }
+                else
+                {
+                    SimulateDisableAndReset(); // 点击停止按钮时重置时间
+                }
             }
 
-            GUILayout.Label(m_RunningTime.ToString("f1") + "s", s_Styles.preLabel);
+            //动画速度缩放
+            GUILayout.Box(s_Styles.speedScale, s_Styles.preLabel);
+            EditorGUI.BeginChangeCheck();
+            m_PlaybackSpeed = PreviewSlider(m_PlaybackSpeed, 0.03f);
+            if (EditorGUI.EndChangeCheck() && m_PreviewInstance)
+            {
+                ParticleSystem[] particleSystems = m_PreviewInstance.GetComponentsInChildren<ParticleSystem>(true);
+                foreach (var particleSystem in particleSystems)
+                {
+#if UNITY_5_5_OR_NEWER
+                    ParticleSystem.MainModule main = particleSystem.main;
+                    main.simulationSpeed = m_PlaybackSpeed;
+#else
+                particleSystem.playbackSpeed = m_PlaybackSpeed;
+#endif
+                }
+            }
+            GUILayout.Label(m_PlaybackSpeed.ToString("f2"), s_Styles.preLabel);
         }
 
         /// <summary>
@@ -608,20 +611,33 @@ namespace ToolKits
         }
 
         /// <summary>
-        /// 最后的销毁方法
-        /// 不能被Unity自动调用，目前只能在点下一个对象时，调用销毁
+        /// Unity ObjectPreview 的标准清理方法
+        /// 重写此方法以确保正确清理资源
         /// </summary>
-        public void OnDestroy()
+        public override void Cleanup()
         {
             ClearLockedParticle();
             SimulateDisable();
             DestroyPreviewInstances();
             if (m_PreviewUtility != null)
             {
-                //Debug.Log("OnDestroy");
+                //Debug.Log("Cleanup");
                 m_PreviewUtility.Cleanup();
                 m_PreviewUtility = null;
             }
+            
+            // 重要：调用基类的 Cleanup 方法
+            base.Cleanup();
+        }
+
+        /// <summary>
+        /// 最后的销毁方法
+        /// 不能被Unity自动调用，目前只能在点下一个对象时，调用销毁
+        /// </summary>
+        public void OnDestroy()
+        {
+            // 调用标准的 Cleanup 方法
+            Cleanup();
         }
 
         /// <summary>
@@ -664,10 +680,18 @@ namespace ToolKits
             }
 
             EditorApplication.update -= InspectorUpdate;
-            m_RunningTime = 0f;
             m_Playing = false;
 
             Debug.Log("粒子停止模拟");
+        }
+        
+        /// <summary>
+        /// 模拟-停止并重置时间
+        /// </summary>
+        private void SimulateDisableAndReset()
+        {
+            SimulateDisable();
+            m_RunningTime = 0f;
         }
 
         /// <summary>
